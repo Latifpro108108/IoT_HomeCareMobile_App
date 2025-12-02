@@ -7,6 +7,41 @@ import '../utils/constants.dart';
 class FirebaseService {
   final DatabaseReference _database = FirebaseDatabase.instance.ref();
 
+  // Fetch current sensor data immediately (one-time)
+  Future<SensorDataModel?> fetchCurrentSensorData(String deviceId) async {
+    try {
+      final snapshot = await _database
+          .child(AppConstants.devicesCollection)
+          .child(deviceId)
+          .child('current')
+          .get();
+      
+      if (snapshot.value == null) return null;
+      
+      try {
+        final rawData = snapshot.value;
+        Map<String, dynamic> data;
+        
+        if (rawData is Map) {
+          data = rawData.map((key, value) {
+            return MapEntry(key.toString(), value);
+          });
+          data = _convertMap(data);
+        } else {
+          return null;
+        }
+        
+        return SensorDataModel.fromJson(data);
+      } catch (e) {
+        debugPrint('Error parsing sensor data: $e');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error fetching current sensor data: $e');
+      return null;
+    }
+  }
+
   // Get current sensor data stream
   Stream<SensorDataModel?> getCurrentSensorData(String deviceId) {
     return _database
@@ -61,7 +96,51 @@ class FirebaseService {
     return result;
   }
 
-  // Get historical sensor data
+  // Fetch historical sensor data once (one-time)
+  Future<List<SensorDataModel>> fetchHistoricalSensorData(String deviceId, {int limit = 100}) async {
+    try {
+      final snapshot = await _database
+          .child(AppConstants.devicesCollection)
+          .child(deviceId)
+          .child('history')
+          .orderByKey()
+          .limitToLast(limit)
+          .get();
+      
+      if (snapshot.value == null) return [];
+
+      try {
+        final data = snapshot.value as Map;
+        final result = data.entries
+            .map((entry) {
+              try {
+                final entryData = entry.value;
+                final convertedData = entryData is Map 
+                    ? _convertMap(Map<dynamic, dynamic>.from(entryData))
+                    : Map<String, dynamic>.from(entryData);
+                return SensorDataModel.fromJson(convertedData);
+              } catch (e) {
+                debugPrint('Error parsing historical entry: $e');
+                return null;
+              }
+            })
+            .where((item) => item != null)
+            .cast<SensorDataModel>()
+            .toList();
+        
+        result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        return result;
+      } catch (e) {
+        debugPrint('Error parsing historical data: $e');
+        return [];
+      }
+    } catch (e) {
+      debugPrint('Error fetching historical sensor data: $e');
+      return [];
+    }
+  }
+
+  // Get historical sensor data stream
   Stream<List<SensorDataModel>> getHistoricalSensorData(String deviceId, {int limit = 100}) {
     return _database
         .child(AppConstants.devicesCollection)

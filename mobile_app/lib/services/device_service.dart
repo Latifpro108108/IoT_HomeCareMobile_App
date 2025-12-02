@@ -38,11 +38,15 @@ class DeviceService {
           .child('metadata')
           .set(deviceMetadata);
 
-      // Also store in Firestore for easier querying
-      await _firestore
+      // Also store in Firestore for easier querying (non-blocking)
+      _firestore
           .collection('devices')
           .doc(deviceId)
-          .set(deviceMetadata);
+          .set(deviceMetadata)
+          .timeout(const Duration(seconds: 2))
+          .catchError((e) {
+        debugPrint('Firestore device write failed (non-critical): $e');
+      });
     } catch (e) {
       throw 'Error registering device: ${e.toString()}';
     }
@@ -67,8 +71,8 @@ class DeviceService {
         'status': DeviceStatus.active.name,
       });
 
-      // Update Firestore
-      await _firestore
+      // Update Firestore (non-blocking)
+      _firestore
           .collection('devices')
           .doc(deviceId)
           .update({
@@ -76,39 +80,33 @@ class DeviceService {
         'patientId': patientId,
         'lastSeen': DateTime.now().toIso8601String(),
         'status': DeviceStatus.active.name,
+      }).timeout(const Duration(seconds: 2)).catchError((e) {
+        debugPrint('Firestore device update failed (non-critical): $e');
       });
 
-      // Update user document to include device
-      await _firestore
+      _firestore
           .collection(AppConstants.usersCollection)
           .doc(userId)
           .update({
         'assignedDeviceId': deviceId,
+      }).timeout(const Duration(seconds: 2)).catchError((e) {
+        debugPrint('Firestore user update failed (non-critical): $e');
       });
     } catch (e) {
       throw 'Error assigning device: ${e.toString()}';
     }
   }
 
-  // Get device metadata
+  // Get device metadata - use Realtime DB only (Firestore is optional)
   Future<DeviceModel?> getDevice(String deviceId) async {
     try {
-      // Try Firestore first (faster)
-      final doc = await _firestore
-          .collection('devices')
-          .doc(deviceId)
-          .get();
-
-      if (doc.exists && doc.data() != null) {
-        return DeviceModel.fromJson(doc.data()!);
-      }
-
-      // Fallback to Realtime Database
+      // Use Realtime Database (primary) - Firestore is optional
       final snapshot = await _database
           .child(AppConstants.devicesCollection)
           .child(deviceId)
           .child('metadata')
-          .get();
+          .get()
+          .timeout(const Duration(seconds: 3));
 
       if (snapshot.exists && snapshot.value != null) {
         final data = Map<String, dynamic>.from(snapshot.value as Map);
@@ -117,48 +115,81 @@ class DeviceService {
 
       return null;
     } catch (e) {
-      throw 'Error fetching device: ${e.toString()}';
+      debugPrint('Error fetching device from Realtime DB: $e');
+      return null;
     }
   }
 
-  // Get all available devices (not assigned)
+  // Get all available devices (not assigned) - use Realtime DB
   Stream<List<DeviceModel>> getAvailableDevices() {
-    return _firestore
-        .collection('devices')
-        .where('assignedUserId', isNull: true)
-        .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => DeviceModel.fromJson(doc.data()))
-            .toList());
+    return _database
+        .child(AppConstants.devicesCollection)
+        .onValue
+        .map((event) {
+      if (event.snapshot.value == null) return <DeviceModel>[];
+      try {
+        final data = event.snapshot.value as Map;
+        return data.entries
+            .where((entry) {
+              final metadata = entry.value['metadata'];
+              return metadata != null && metadata['assignedUserId'] == null;
+            })
+            .map((entry) {
+              final metadata = entry.value['metadata'] as Map;
+              return DeviceModel.fromJson(Map<String, dynamic>.from(metadata));
+            })
+            .toList();
+      } catch (e) {
+        debugPrint('Error parsing devices: $e');
+        return <DeviceModel>[];
+      }
+    });
   }
 
-  // Get devices assigned to a user
+  // Get devices assigned to a user - use Realtime DB
   Stream<List<DeviceModel>> getUserDevices(String userId) {
-    return _firestore
-        .collection('devices')
-        .where('assignedUserId', isEqualTo: userId)
-        .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => DeviceModel.fromJson(doc.data()))
-            .toList());
+    return _database
+        .child(AppConstants.devicesCollection)
+        .onValue
+        .map((event) {
+      if (event.snapshot.value == null) return <DeviceModel>[];
+      try {
+        final data = event.snapshot.value as Map;
+        return data.entries
+            .where((entry) {
+              final metadata = entry.value['metadata'];
+              return metadata != null && metadata['assignedUserId'] == userId;
+            })
+            .map((entry) {
+              final metadata = entry.value['metadata'] as Map;
+              return DeviceModel.fromJson(Map<String, dynamic>.from(metadata));
+            })
+            .toList();
+      } catch (e) {
+        debugPrint('Error parsing user devices: $e');
+        return <DeviceModel>[];
+      }
+    });
   }
 
-  // Get device assigned to user
+  // Get device assigned to user - use Realtime DB
   Future<DeviceModel?> getUserAssignedDevice(String userId) async {
     try {
-      final userDoc = await _firestore
-          .collection(AppConstants.usersCollection)
-          .doc(userId)
-          .get();
+      // Check Realtime Database for user's device assignment
+      final userSnapshot = await _database
+          .child('users')
+          .child(userId)
+          .child('assignedDeviceId')
+          .get()
+          .timeout(const Duration(seconds: 2));
 
-      if (!userDoc.exists || userDoc.data() == null) return null;
+      if (!userSnapshot.exists || userSnapshot.value == null) return null;
 
-      final assignedDeviceId = userDoc.data()?['assignedDeviceId'];
-      if (assignedDeviceId == null) return null;
-
+      final assignedDeviceId = userSnapshot.value.toString();
       return getDevice(assignedDeviceId);
     } catch (e) {
-      throw 'Error fetching user device: ${e.toString()}';
+      debugPrint('Error fetching user device: $e');
+      return null;
     }
   }
 
@@ -176,12 +207,15 @@ class DeviceService {
         'status': DeviceStatus.active.name,
       });
 
-      await _firestore
+      // Firestore update (non-blocking)
+      _firestore
           .collection('devices')
           .doc(deviceId)
           .update({
         'lastSeen': now,
         'status': DeviceStatus.active.name,
+      }).timeout(const Duration(seconds: 1)).catchError((e) {
+        // Silent fail
       });
     } catch (e) {
       // Silent fail for last seen updates

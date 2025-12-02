@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/firebase_service.dart';
@@ -17,23 +16,21 @@ class MonitoringScreen extends StatefulWidget {
   State<MonitoringScreen> createState() => _MonitoringScreenState();
 }
 
-class _MonitoringScreenState extends State<MonitoringScreen> with SingleTickerProviderStateMixin {
+class _MonitoringScreenState extends State<MonitoringScreen>
+    with SingleTickerProviderStateMixin {
   UserModel? _currentUser;
   SensorDataModel? _currentSensorData;
   EmotionalStateResult? _currentEmotionalState;
   List<EmotionalStateResult> _emotionalStateHistory = [];
-  List<SensorDataModel> _sensorDataHistory = []; // For charts
-  bool _isLoading = true;
+  List<SensorDataModel> _sensorDataHistory = [];
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    // Defer heavy loading until after first frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadUserData();
-    });
+    // Load immediately without blocking
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
   }
 
   @override
@@ -42,127 +39,79 @@ class _MonitoringScreenState extends State<MonitoringScreen> with SingleTickerPr
     super.dispose();
   }
 
-  Future<void> _loadUserData() async {
-    if (!mounted) return;
-    
-    setState(() => _isLoading = true);
-    
-    try {
-      final authService = Provider.of<AuthService>(context, listen: false);
-      final user = await authService.getCurrentUserModel();
-
+  void _loadData() {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    authService.getCurrentUserModel().then((user) {
       if (mounted) {
-        setState(() {
-          _currentUser = user;
-          _isLoading = false;
-        });
-        // Setup monitoring after user is loaded (don't block navigation)
-        Future.microtask(() => _setupRealtimeMonitoring());
+        setState(() => _currentUser = user);
+        if (user != null) {
+          _setupStreams();
+        }
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+    });
   }
 
-  void _setupRealtimeMonitoring() {
-    if (_currentUser == null) {
-      debugPrint('⚠️ MonitoringScreen: Cannot setup monitoring - user is null');
-      return;
-    }
-    
-    debugPrint('🔄 MonitoringScreen: Setting up realtime monitoring for user: ${_currentUser!.uid}');
+  void _setupStreams() {
+    if (_currentUser == null) return;
 
     final firebaseService =
         Provider.of<FirebaseService>(context, listen: false);
-
-    // Get user's assigned device ID or use default
     final deviceId =
         _currentUser!.assignedDeviceId ?? AppConstants.defaultDeviceId;
 
-    // Listen to sensor data from user's assigned device
-    firebaseService.getCurrentSensorData(deviceId).listen((sensorData) {
-      if (mounted && sensorData != null) {
+    // Get current data immediately
+    firebaseService.fetchCurrentSensorData(deviceId).then((data) {
+      if (mounted && data != null) {
         setState(() {
-          _currentSensorData = sensorData;
-          // Add to history for charts (keep last 100 readings)
-          _sensorDataHistory.add(sensorData);
-          if (_sensorDataHistory.length > 100) {
-            _sensorDataHistory.removeAt(0);
+          _currentSensorData = data;
+          _sensorDataHistory = [data];
+        });
+      }
+    });
+
+    // Real-time sensor stream - SIMPLE
+    firebaseService.getCurrentSensorData(deviceId).listen((data) {
+      if (mounted && data != null) {
+        setState(() {
+          _currentSensorData = data;
+
+          // Add to history if new
+          final exists = _sensorDataHistory.any((d) =>
+              d.timestamp.millisecondsSinceEpoch ==
+              data.timestamp.millisecondsSinceEpoch);
+
+          if (!exists) {
+            final updated = List<SensorDataModel>.from(_sensorDataHistory)
+              ..add(data);
+            updated.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+            if (updated.length > 50) updated.removeAt(0);
+            _sensorDataHistory = updated;
           }
         });
       }
     });
 
-    // Also load historical sensor data for charts
-    firebaseService.getHistoricalSensorData(deviceId, limit: 50).listen((historicalData) {
-      if (mounted && historicalData.isNotEmpty) {
-        setState(() {
-          _sensorDataHistory = historicalData.reversed.toList();
-        });
-      }
-    });
-
-    // Listen to emotional state
+    // Emotional state
     firebaseService.getCurrentEmotionalState(_currentUser!.uid).listen((state) {
-      if (mounted && state != null) {
+      if (mounted) {
         setState(() => _currentEmotionalState = state);
       }
     });
 
-    // Fetch emotional state history immediately (one-time)
-    firebaseService.fetchEmotionalStateHistory(_currentUser!.uid, limit: 20).then((history) {
-      if (mounted) {
-        debugPrint('📊 MonitoringScreen: Initial fetch of emotional state history');
-        debugPrint('   History count: ${history.length}');
-        setState(() {
-          _emotionalStateHistory = history;
-        });
-        if (history.isNotEmpty) {
-          debugPrint('✅ MonitoringScreen: Initial history loaded and displayed');
-        } else {
-          debugPrint('⚠️ MonitoringScreen: No initial history data found');
-        }
-      }
-    }).catchError((error) {
-      debugPrint('❌ MonitoringScreen: Error fetching initial emotional state history: $error');
-    });
-    
-    // Also listen to emotional state history (for updates)
-    debugPrint('📊 MonitoringScreen: Starting to listen to emotional state history stream for user: ${_currentUser!.uid}');
     firebaseService
-        .getEmotionalStateHistory(_currentUser!.uid, limit: 20)
-        .listen((history) {
+        .fetchEmotionalStateHistory(_currentUser!.uid, limit: 10)
+        .then((history) {
       if (mounted) {
-        debugPrint('📊 MonitoringScreen: Received emotional state history update from stream');
-        debugPrint('   History count: ${history.length}');
-        setState(() {
-          _emotionalStateHistory = history;
-        });
-        if (history.isNotEmpty) {
-          debugPrint('✅ MonitoringScreen: History updated and displayed');
-        } else {
-          debugPrint('⚠️ MonitoringScreen: History is empty (no data yet)');
-        }
+        setState(() => _emotionalStateHistory = history);
       }
-    }, onError: (error) {
-      debugPrint('❌ MonitoringScreen: Error listening to emotional state history stream: $error');
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        appBar: null,
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Real-time Monitoring'),
+        title: const Text('Monitoring'),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -174,212 +123,427 @@ class _MonitoringScreenState extends State<MonitoringScreen> with SingleTickerPr
       body: TabBarView(
         controller: _tabController,
         children: [
-          // Dashboard Tab
-          RefreshIndicator(
-            onRefresh: () async {
-              setState(() {});
-            },
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Current Emotional State Card
-                  if (_currentEmotionalState != null) ...[
-                    _buildEmotionalStateCard(),
-                    const SizedBox(height: 24),
-                  ],
-                  // Sensor Data Card
-                  if (_currentSensorData != null) ...[
-                    _buildSensorDataCard(),
-                    const SizedBox(height: 24),
-                  ],
-                  // History Section
-                  if (_emotionalStateHistory.isNotEmpty) ...[
-                    Text(
-                      'Recent History',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey[800],
-                          ),
-                    ),
-                    const SizedBox(height: 16),
-                    ..._emotionalStateHistory.map((state) => _buildHistoryItem(state)),
-                  ] else ...[
-                    Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      color: Colors.grey[100],
-                      child: Padding(
-                        padding: const EdgeInsets.all(32.0),
-                        child: Column(
-                          children: [
-                            Icon(Icons.history, size: 48, color: Colors.grey[400]),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No History Yet',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    color: Colors.grey[700],
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'History will appear here as events occur',
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.grey[500],
-                                  ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          // Charts Tab
-          SensorChartsWidget(
-            sensorDataHistory: _sensorDataHistory,
-            maxDataPoints: 50,
-          ),
+          _buildDashboard(),
+          _buildCharts(),
         ],
       ),
     );
   }
 
-  Widget _buildEmotionalStateCard() {
-    final state = _currentEmotionalState!.state;
-    final confidence = _currentEmotionalState!.confidence;
-
-    Color cardColor;
-    IconData icon;
-
-    switch (state) {
-      case EmotionalState.anxiety:
-        cardColor = Colors.orange;
-        icon = Icons.mood_bad;
-        break;
-      case EmotionalState.stress:
-        cardColor = Colors.red;
-        icon = Icons.warning;
-        break;
-      case EmotionalState.discomfort:
-        cardColor = Colors.amber;
-        icon = Icons.sick;
-        break;
-      case EmotionalState.normal:
-        cardColor = Colors.green;
-        icon = Icons.check_circle;
-        break;
-      case EmotionalState.unknown:
-        cardColor = Colors.grey;
-        icon = Icons.help;
-        break;
-    }
-
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      color: cardColor.withOpacity(0.1),
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: cardColor.withOpacity(0.2),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 48, color: cardColor),
-            ),
+  Widget _buildDashboard() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header with device info
+          if (_currentUser != null) ...[
+            _buildDeviceInfoCard(),
             const SizedBox(height: 16),
+          ],
+
+          // Current emotional state
+          if (_currentEmotionalState != null) ...[
+            _buildEmotionalCard(),
+            const SizedBox(height: 16),
+          ],
+
+          // Current sensor readings with more details
+          if (_currentSensorData != null) ...[
+            _buildSensorCard(),
+            const SizedBox(height: 16),
+            _buildDetailedStatsCard(),
+            const SizedBox(height: 16),
+          ],
+
+          // Data summary card
+          if (_sensorDataHistory.isNotEmpty) ...[
+            _buildDataSummaryCard(),
+            const SizedBox(height: 16),
+          ],
+
+          // Emotional state history
+          if (_emotionalStateHistory.isNotEmpty) ...[
             Text(
-              state.displayName,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              'Emotional State History',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: cardColor,
                   ),
             ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: cardColor,
-                borderRadius: BorderRadius.circular(20),
+            const SizedBox(height: 12),
+            ..._emotionalStateHistory.map((s) => _buildHistoryItem(s)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCharts() {
+    return SensorChartsWidget(
+      sensorDataHistory: _sensorDataHistory,
+    );
+  }
+
+  Widget _buildDeviceInfoCard() {
+    final deviceId = _currentUser?.assignedDeviceId ?? 'Not assigned';
+    final lastUpdate = _currentSensorData?.timestamp;
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.blue.withOpacity(0.1),
+              Colors.purple.withOpacity(0.05),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.devices, color: Colors.blue, size: 28),
               ),
-              child: Text(
-                '${(confidence * 100).toInt()}% Confidence',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Device ID',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      deviceId,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (lastUpdate != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Last update: ${_formatTimeAgo(lastUpdate)}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: LinearProgressIndicator(
-                value: confidence,
-                minHeight: 8,
-                backgroundColor: Colors.grey[200],
-                valueColor: AlwaysStoppedAnimation<Color>(cardColor),
+              Icon(
+                Icons.check_circle,
+                color: _currentSensorData != null ? Colors.green : Colors.grey,
+                size: 24,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildSensorDataCard() {
-    final data = _currentSensorData!;
+  Widget _buildEmotionalCard() {
+    final s = _currentEmotionalState!;
+    Color c;
+    IconData i;
+    String description;
+
+    switch (s.state) {
+      case EmotionalState.anxiety:
+        c = Colors.orange;
+        i = Icons.mood_bad;
+        description = 'Elevated stress indicators detected';
+        break;
+      case EmotionalState.stress:
+        c = Colors.red;
+        i = Icons.warning;
+        description = 'High stress levels detected';
+        break;
+      case EmotionalState.discomfort:
+        c = Colors.amber;
+        i = Icons.sick;
+        description = 'Mild discomfort detected';
+        break;
+      case EmotionalState.normal:
+        c = Colors.green;
+        i = Icons.check_circle;
+        description = 'All readings within normal range';
+        break;
+      default:
+        c = Colors.grey;
+        i = Icons.help;
+        description = 'Status unknown';
+        break;
+    }
+
     return Card(
-      elevation: 0,
+      elevation: 3,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              c.withOpacity(0.15),
+              c.withOpacity(0.05),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: c.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(i, size: 32, color: c),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Current Status',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          s.state.displayName,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: c,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: c,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${(s.confidence * 100).toInt()}%',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: Colors.grey[700]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        description,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Detected: ${DateFormat('MMM dd, HH:mm:ss').format(s.detectedAt)}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSensorCard() {
+    final d = _currentSensorData!;
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.blue.withOpacity(0.05),
+              Colors.purple.withOpacity(0.02),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.sensors, color: Colors.blue[700], size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Current Sensor Readings',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildMetric(
+                      'Temperature',
+                      Icons.thermostat,
+                      '${d.temperature.toStringAsFixed(1)}°C',
+                      Colors.red,
+                      _getTempStatus(d.temperature),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildMetric(
+                      'Humidity',
+                      Icons.water_drop,
+                      '${d.humidity.toStringAsFixed(1)}%',
+                      Colors.blue,
+                      _getHumidityStatus(d.humidity),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildMetric(
+                      'Motion',
+                      Icons.accessibility_new,
+                      '${d.motion.magnitude.toStringAsFixed(2)} m/s²',
+                      Colors.purple,
+                      _getMotionStatus(d.motion.magnitude),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildMetric(
+                      'Sound',
+                      Icons.volume_up,
+                      '${d.sound}',
+                      Colors.green,
+                      _getSoundStatus(d.sound),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailedStatsCard() {
+    if (_sensorDataHistory.isEmpty) return const SizedBox.shrink();
+
+    final sorted = List<SensorDataModel>.from(_sensorDataHistory)
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    final temps = sorted.map((d) => d.temperature).toList();
+    final humidities = sorted.map((d) => d.humidity).toList();
+    final motions = sorted.map((d) => d.motion.magnitude).toList();
+    final sounds = sorted.map((d) => d.sound.toDouble()).toList();
+
+    final tempAvg = temps.reduce((a, b) => a + b) / temps.length;
+    final humidityAvg = humidities.reduce((a, b) => a + b) / humidities.length;
+    final motionAvg = motions.reduce((a, b) => a + b) / motions.length;
+    final soundAvg = sounds.reduce((a, b) => a + b) / sounds.length;
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(20.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(Icons.sensors, color: Theme.of(context).colorScheme.primary, size: 24),
+                Icon(Icons.analytics, color: Colors.purple[700], size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  'Current Sensor Data',
+                  'Average Values',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: Colors.grey[800],
                       ),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-            // Compact 2x2 Grid
+            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
-                  child: _buildCompactSensorMetric(
-                    'Temperature',
-                    '${data.temperature.toStringAsFixed(1)}°C',
-                    Icons.thermostat,
-                    Colors.red,
-                  ),
+                  child: _buildStatItem('Temp Avg',
+                      '${tempAvg.toStringAsFixed(1)}°C', Colors.red),
                 ),
-                const SizedBox(width: 12),
                 Expanded(
-                  child: _buildCompactSensorMetric(
-                    'Humidity',
-                    '${data.humidity.toStringAsFixed(1)}%',
-                    Icons.water_drop,
-                    Colors.blue,
-                  ),
+                  child: _buildStatItem('Humidity Avg',
+                      '${humidityAvg.toStringAsFixed(1)}%', Colors.blue),
                 ),
               ],
             ),
@@ -387,21 +551,12 @@ class _MonitoringScreenState extends State<MonitoringScreen> with SingleTickerPr
             Row(
               children: [
                 Expanded(
-                  child: _buildCompactSensorMetric(
-                    'Motion',
-                    data.motion.magnitude.toStringAsFixed(2),
-                    Icons.accessibility_new,
-                    Colors.purple,
-                  ),
+                  child: _buildStatItem('Motion Avg',
+                      '${motionAvg.toStringAsFixed(2)}', Colors.purple),
                 ),
-                const SizedBox(width: 12),
                 Expanded(
-                  child: _buildCompactSensorMetric(
-                    'Sound',
-                    '${data.sound}',
-                    Icons.volume_up,
-                    Colors.green,
-                  ),
+                  child: _buildStatItem('Sound Avg',
+                      '${soundAvg.toStringAsFixed(0)}', Colors.green),
                 ),
               ],
             ),
@@ -411,102 +566,248 @@ class _MonitoringScreenState extends State<MonitoringScreen> with SingleTickerPr
     );
   }
 
-  Widget _buildCompactSensorMetric(String label, String value, IconData icon, Color color) {
+  Widget _buildDataSummaryCard() {
+    final dataCount = _sensorDataHistory.length;
+    final firstData = _sensorDataHistory.isNotEmpty
+        ? _sensorDataHistory.first.timestamp
+        : null;
+    final lastData = _currentSensorData?.timestamp;
+
+    Duration? duration;
+    if (firstData != null && lastData != null) {
+      duration = lastData.difference(firstData);
+    }
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.green.withOpacity(0.1),
+              Colors.teal.withOpacity(0.05),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child:
+                    const Icon(Icons.data_usage, color: Colors.green, size: 24),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Data Points Collected',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$dataCount readings',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (duration != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Span: ${_formatDuration(duration)}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, Color color) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(height: 8),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 18,
+            style: TextStyle(
+              fontSize: 16,
               fontWeight: FontWeight.bold,
-              color: Colors.black87,
+              color: color,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Colors.grey,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey[600],
             ),
-            textAlign: TextAlign.center,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHistoryItem(EmotionalStateResult state) {
-    Color color;
-    IconData icon;
+  Widget _buildMetric(
+    String label,
+    IconData icon,
+    String value,
+    Color color,
+    String status,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: color.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            status,
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey[600],
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-    switch (state.state) {
-      case EmotionalState.anxiety:
-        color = Colors.orange;
-        icon = Icons.mood_bad;
-        break;
-      case EmotionalState.stress:
-        color = Colors.red;
-        icon = Icons.warning;
-        break;
-      case EmotionalState.discomfort:
-        color = Colors.amber;
-        icon = Icons.sick;
-        break;
-      case EmotionalState.normal:
-        color = Colors.green;
-        icon = Icons.check_circle;
-        break;
-      case EmotionalState.unknown:
-        color = Colors.grey;
-        icon = Icons.help;
-        break;
+  String _getTempStatus(double temp) {
+    if (temp < 18) return 'Cold';
+    if (temp > 25) return 'Warm';
+    return 'Normal';
+  }
+
+  String _getHumidityStatus(double humidity) {
+    if (humidity < 30) return 'Dry';
+    if (humidity > 70) return 'Humid';
+    return 'Comfortable';
+  }
+
+  String _getMotionStatus(double motion) {
+    if (motion < 0.5) return 'Still';
+    if (motion > 2.0) return 'Active';
+    return 'Moderate';
+  }
+
+  String _getSoundStatus(int sound) {
+    if (sound < 30) return 'Quiet';
+    if (sound > 60) return 'Loud';
+    return 'Normal';
+  }
+
+  String _formatTimeAgo(DateTime time) {
+    final now = DateTime.now();
+    final diff = now.difference(time);
+
+    if (diff.inSeconds < 60) {
+      return '${diff.inSeconds}s ago';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}m ago';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours}h ago';
+    } else {
+      return '${diff.inDays}d ago';
     }
+  }
+
+  String _formatDuration(Duration duration) {
+    if (duration.inDays > 0) {
+      return '${duration.inDays}d ${duration.inHours % 24}h';
+    } else if (duration.inHours > 0) {
+      return '${duration.inHours}h ${duration.inMinutes % 60}m';
+    } else {
+      return '${duration.inMinutes}m';
+    }
+  }
+
+  Widget _buildHistoryItem(EmotionalStateResult s) {
+    Color c = s.state == EmotionalState.anxiety
+        ? Colors.orange
+        : s.state == EmotionalState.stress
+            ? Colors.red
+            : s.state == EmotionalState.discomfort
+                ? Colors.amber
+                : s.state == EmotionalState.normal
+                    ? Colors.green
+                    : Colors.grey;
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.1),
-          child: Icon(icon, color: color),
-        ),
-        title: Text(
-          state.state.displayName,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Text(
-          DateFormat('MMM dd, yyyy HH:mm:ss').format(state.detectedAt),
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              '${(state.confidence * 100).toInt()}%',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-            const SizedBox(height: 4),
-            SizedBox(
-              width: 60,
-              child: LinearProgressIndicator(
-                value: state.confidence,
-                backgroundColor: Colors.grey[200],
-                valueColor: AlwaysStoppedAnimation<Color>(color),
-              ),
-            ),
-          ],
-        ),
+            backgroundColor: c.withOpacity(0.2),
+            child: Icon(Icons.circle, color: c, size: 12)),
+        title: Text(s.state.displayName,
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text(DateFormat('HH:mm:ss').format(s.detectedAt)),
+        trailing: Text('${(s.confidence * 100).toInt()}%',
+            style: TextStyle(color: c, fontWeight: FontWeight.bold)),
       ),
     );
   }

@@ -62,8 +62,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
     
-    debugPrint('🔄 Dashboard: Setting up realtime monitoring for user: ${_currentUser!.uid}');
-    
     final firebaseService = Provider.of<FirebaseService>(context, listen: false);
     final baselineService = Provider.of<BaselineService>(context, listen: false);
     final notificationService = Provider.of<NotificationService>(context, listen: false);
@@ -72,9 +70,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     // Get user's assigned device ID or use default
     final deviceId = _currentUser!.assignedDeviceId ?? AppConstants.defaultDeviceId;
-    debugPrint('📱 Dashboard: Monitoring device: $deviceId');
+
+    // Fetch current data immediately (don't wait for streams)
+    Future.microtask(() async {
+      // Fetch current sensor data immediately
+      final currentSensorData = await firebaseService.fetchCurrentSensorData(deviceId);
+      if (mounted && currentSensorData != null) {
+        setState(() => _currentSensorData = currentSensorData);
+      }
+      
+      // Fetch current emotional state immediately
+      final currentState = await firebaseService.fetchCurrentEmotionalState(_currentUser!.uid);
+      if (mounted) {
+        setState(() => _currentEmotionalState = currentState);
+      }
+    });
 
     SensorDataModel? previousSensorData;
+    DateTime? _lastEmotionalStateProcessTime;
+    const _emotionalStateProcessInterval = Duration(seconds: 5); // Process every 5 seconds max
 
     // Listen to sensor data from user's assigned device
     firebaseService.getCurrentSensorData(deviceId).listen((sensorData) {
@@ -83,7 +97,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           setState(() => _currentSensorData = sensorData);
         }
 
-        // Run fall detection analysis
+        // Run fall detection analysis (lightweight, can run frequently)
         fallDetectionService.analyzeSensorDataForFall(
           userId: _currentUser!.uid,
           deviceId: deviceId,
@@ -91,20 +105,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
           previousData: previousSensorData,
         ).then((event) {
           if (event != null) {
-            debugPrint('🚨 Fall detected! Confidence: ${(event.confidence * 100).toStringAsFixed(1)}%');
+            // Fall detected - notification already shown by service
           }
         });
 
         // Update previous sensor data
         previousSensorData = sensorData;
 
-        // Process emotional state for each condition that requires baseline
+        // Throttle emotional state processing (heavy operation)
+        final now = DateTime.now();
+        if (_lastEmotionalStateProcessTime == null || 
+            now.difference(_lastEmotionalStateProcessTime!) >= _emotionalStateProcessInterval) {
+          _lastEmotionalStateProcessTime = now;
+          
+          // Process emotional state for each condition that requires baseline (debounced)
+          Future.microtask(() async {
         for (final condition in AppConstants.conditionsRequiringBaseline) {
-          baselineService.hasBaseline(
+              try {
+                final hasBaseline = await baselineService.hasBaseline(
             userId: _currentUser!.uid,
             deviceId: deviceId,
             condition: condition,
-          ).then((hasBaseline) async {
+                );
+                
             if (hasBaseline && mounted) {
               final baseline = await baselineService.getBaseline(
                 userId: _currentUser!.uid,
@@ -112,9 +135,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 condition: condition,
               );
 
-              if (baseline != null && mounted) {
+                  if (baseline != null && mounted && _currentSensorData != null) {
                 final result = baselineService.analyzeEmotionalState(
-                  currentData: sensorData,
+                      currentData: _currentSensorData!,
                   baseline: baseline,
                   targetCondition: condition,
                 );
@@ -122,7 +145,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 // Save emotional state to Firebase
                 try {
                   await firebaseService.saveEmotionalState(_currentUser!.uid, result);
-                  debugPrint('✅ Emotional state saved: ${result.state.name} (${(result.confidence * 100).toStringAsFixed(1)}%)');
                 } catch (e) {
                   debugPrint('❌ Failed to save emotional state: $e');
                 }
@@ -135,12 +157,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 if (mounted) {
                   setState(() => _currentEmotionalState = result);
                 }
+                  }
+                }
+              } catch (e) {
+                debugPrint('❌ Error processing emotional state for $condition: $e');
               }
             }
           });
         }
 
-        // Run feeling good detection
+        // Run feeling good detection (lightweight)
         feelingGoodService.detectFeelingGood(
           userId: _currentUser!.uid,
           deviceId: deviceId,
@@ -150,48 +176,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     });
     
-    // Fetch current emotional state immediately (one-time)
-    firebaseService.fetchCurrentEmotionalState(_currentUser!.uid).then((state) {
-      if (mounted) {
-        debugPrint('📊 Dashboard: Initial fetch of emotional state');
-        debugPrint('   State: ${state?.state.name ?? 'null'}, Confidence: ${state?.confidence ?? 0}');
-        setState(() {
-          _currentEmotionalState = state;
-        });
-        if (state != null) {
-          debugPrint('✅ Dashboard: Initial emotional state loaded and displayed');
-        } else {
-          debugPrint('⚠️ Dashboard: No initial emotional state data found');
-        }
-      }
-    }).catchError((error) {
-      debugPrint('❌ Dashboard: Error fetching initial emotional state: $error');
-    });
-    
-    // Also listen to emotional state directly from Firebase (for updates)
-    debugPrint('🔊 Dashboard: Starting to listen to emotional state stream for user: ${_currentUser!.uid}');
+    // Listen to emotional state directly from Firebase (for updates from other sources)
     firebaseService.getCurrentEmotionalState(_currentUser!.uid).listen(
       (state) {
-        debugPrint('📊 Dashboard: Received emotional state update from Firebase stream');
-        debugPrint('   State received: ${state?.state.name ?? 'null'}');
-        debugPrint('   Confidence: ${state?.confidence ?? 0}');
-        debugPrint('   Detected at: ${state?.detectedAt ?? 'null'}');
-        
-        if (mounted) {
-          setState(() {
-            final previousState = _currentEmotionalState?.state.name ?? 'null';
-            _currentEmotionalState = state;
-            final newState = _currentEmotionalState?.state.name ?? 'null';
-            debugPrint('✅ Dashboard: State updated from $previousState to $newState');
-          });
-          
-          if (state != null) {
-            debugPrint('✅ Dashboard: Emotional state card should now be visible');
-          } else {
-            debugPrint('⚠️ Dashboard: Emotional state is null (no data yet)');
-          }
-        } else {
-          debugPrint('⚠️ Dashboard: Widget not mounted, cannot update state');
+        if (mounted && state != null) {
+          setState(() => _currentEmotionalState = state);
         }
       },
       onError: (error) {

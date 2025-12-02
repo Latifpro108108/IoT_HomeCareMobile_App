@@ -38,22 +38,24 @@ class _SignInScreenState extends State<SignInScreen> {
         password: _passwordController.text,
       );
 
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/home');
-      }
+      if (!mounted) return;
+
+      // Stop loading before navigating so the button doesn't appear stuck
+      setState(() => _isLoading = false);
+
+      // Navigate to home and clear the back stack so the user can't accidentally go back to auth screens
+      Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
     } catch (e) {
-      if (mounted) {
+      if (!mounted) return;
+
+      setState(() => _isLoading = false);
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(e.toString()),
             backgroundColor: Colors.red,
           ),
         );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
     }
   }
 

@@ -63,6 +63,18 @@ class _BaselineRecordingEnhancedScreenState extends State<BaselineRecordingEnhan
           _currentUser = user;
           _isLoading = false;
         });
+        
+        // Fetch current sensor data immediately
+        if (user != null) {
+          final firebaseService = Provider.of<FirebaseService>(context, listen: false);
+          final deviceId = user.assignedDeviceId ?? AppConstants.defaultDeviceId;
+          firebaseService.fetchCurrentSensorData(deviceId).then((data) {
+            if (mounted && data != null) {
+              setState(() => _currentSensorData = data);
+            }
+          });
+        }
+        
         // Load baselines and setup sensor listener asynchronously (don't block UI)
         Future.microtask(() {
           _loadBaselines();

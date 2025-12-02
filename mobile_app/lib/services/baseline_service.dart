@@ -38,17 +38,19 @@ class BaselineService {
       );
 
       final docId = '${userId}_${deviceId}_$condition';
+      // Firestore with timeout - don't block
       await _firestore
           .collection(AppConstants.baselinesCollection)
           .doc(docId)
           .set({
         ...initialBaseline.toJson(),
         'deviceId': deviceId,
-      });
+      }).timeout(const Duration(seconds: 3));
       debugPrint('✅ Initial baseline set to Firestore: /${AppConstants.baselinesCollection}/$docId');
     } catch (e) {
       debugPrint('❌ Error initializing baseline: ${e.toString()}');
-      throw 'Error initializing baseline: ${e.toString()}';
+      // Don't throw - allow app to continue
+      debugPrint('⚠️ Continuing without Firestore baseline storage');
     }
   }
 
@@ -83,19 +85,20 @@ class BaselineService {
       );
 
       final docId = '${userId}_${deviceId}_$condition';
+      // Firestore with timeout
       await _firestore
           .collection(AppConstants.baselinesCollection)
           .doc(docId)
           .set({
         ...baseline.toJson(),
         'deviceId': deviceId,
-      });
+      }).timeout(const Duration(seconds: 3));
       
       debugPrint('✅ Baseline saved to Firestore: /${AppConstants.baselinesCollection}/$docId');
-      debugPrint('   Condition: $condition, Device: $deviceId');
     } catch (e) {
       debugPrint('❌ Error recording baseline: ${e.toString()}');
-      throw 'Error recording baseline: ${e.toString()}';
+      // Don't throw - allow app to continue
+      debugPrint('⚠️ Baseline recording failed but continuing');
     }
   }
 
@@ -109,16 +112,15 @@ class BaselineService {
       final doc = await _firestore
           .collection(AppConstants.baselinesCollection)
           .doc('${userId}_${deviceId}_$condition')
-          .get();
+          .get()
+          .timeout(const Duration(seconds: 2));
 
       if (doc.exists && doc.data() != null) {
-        debugPrint('✅ Baseline retrieved from Firestore: /${AppConstants.baselinesCollection}/${doc.id}');
         return BaselineModel.fromJson(doc.data()!);
       }
-      debugPrint('ℹ️ No baseline found for $condition, device $deviceId, user $userId');
       return null;
     } catch (e) {
-      debugPrint('❌ Error getting baseline: ${e.toString()}');
+      debugPrint('❌ Error getting baseline (non-critical): ${e.toString()}');
       return null;
     }
   }
@@ -133,14 +135,15 @@ class BaselineService {
       final doc = await _firestore
           .collection(AppConstants.baselinesCollection)
           .doc('${userId}_${deviceId}_$condition')
-          .get();
+          .get()
+          .timeout(const Duration(seconds: 2));
 
-      if (!doc.exists) return false;
+      if (!doc.exists || doc.data() == null) return false;
 
       final baseline = BaselineModel.fromJson(doc.data()!);
       return !baseline.isEmpty;
     } catch (e) {
-      debugPrint('❌ Error checking baseline existence: ${e.toString()}');
+      debugPrint('❌ Error checking baseline (non-critical): ${e.toString()}');
       return false;
     }
   }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// Helper class for optimized navigation
+/// Helper class for INSTANT navigation - no delays
 class NavigationHelper {
-  /// Fast navigation with optimized page route
+  /// INSTANT navigation - shows page immediately, no transition delay
   static Future<T?> pushFast<T extends Object?>(
     BuildContext context,
     Widget page, {
@@ -13,21 +13,18 @@ class NavigationHelper {
       PageRouteBuilder<T>(
         pageBuilder: (context, animation, secondaryAnimation) => page,
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          // Fast fade transition
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
+          // INSTANT - no animation delay
+          return child;
         },
-        transitionDuration: const Duration(milliseconds: 200), // Fast transition
-        reverseTransitionDuration: const Duration(milliseconds: 150),
+        transitionDuration: Duration.zero, // ZERO delay
+        reverseTransitionDuration: Duration.zero, // ZERO delay
         maintainState: maintainState,
         fullscreenDialog: fullscreenDialog,
       ),
     );
   }
 
-  /// Replace current route quickly
+  /// INSTANT replacement - zero delay
   static Future<T?> pushReplacementFast<T extends Object?, TO extends Object?>(
     BuildContext context,
     Widget page, {
@@ -36,20 +33,15 @@ class NavigationHelper {
     return Navigator.of(context).pushReplacement<T, TO>(
       PageRouteBuilder<T>(
         pageBuilder: (context, animation, secondaryAnimation) => page,
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
-        },
-        transitionDuration: const Duration(milliseconds: 200),
-        reverseTransitionDuration: const Duration(milliseconds: 150),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) => child,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
       ),
       result: result,
     );
   }
 
-  /// Push and remove all previous routes quickly
+  /// INSTANT push and remove - zero delay
   static Future<T?> pushAndRemoveUntilFast<T extends Object?>(
     BuildContext context,
     Widget page,
@@ -58,14 +50,9 @@ class NavigationHelper {
     return Navigator.of(context).pushAndRemoveUntil<T>(
       PageRouteBuilder<T>(
         pageBuilder: (context, animation, secondaryAnimation) => page,
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
-        },
-        transitionDuration: const Duration(milliseconds: 200),
-        reverseTransitionDuration: const Duration(milliseconds: 150),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) => child,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
       ),
       predicate,
     );
