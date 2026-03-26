@@ -1,4 +1,4 @@
-# Mental Health Monitoring System - MXChip AZ3166 IoT Device
+# Health Care Monitoring System - MXChip AZ3166 IoT Device
 
 ## 🎯 Project Overview
 
@@ -6,7 +6,8 @@ This project implements a **non-intrusive, wearable IoT device** for mental heal
 
 ### 🏥 Problem Statement
 
-Mental health problems are frequently underdetected or poorly controlled because of the absence of constant surveillance. Signs of distress like erratic activity, audible complaints, or external conditions frequently escape detection when there is no one around or in understaffed facilities. This system addresses these challenges through:
+With a fast-aging global population, we can expect that older adults will be on the rise. At present, the number of people over 60 years of age is set to double to 2.1 billion by 2050 and places extraordinary strain upon both home and long-term care systems everywhere. In parallel to this aging population, an estimated 1.3 billion individuals have some form of disability such as physical handicaps and Autism Spectrum Disorder (ASD), and many of these people require close supervision and environmental control to keep them safe and make them comfortable at home patients and people with physical disabilities have a shared vulnerability: they often cannot express distress or respond to environmental dangers by themselves, making caregiver responsiveness crucial for their quality of life.
+
 
 - **Non-intrusive monitoring** without compromising privacy
 - **Real-time data collection** from multiple sensors
@@ -144,6 +145,11 @@ Each sensor is initialized with a robust sequence:
 - **Humidity Uncomfortable**: 70-85%
 - **Humidity Dangerous**: 85+%
 
+### Fall Detection
+-**Gyroscope**: Angles 
+-**Accelerometr**: Speed
+
+
 ---
 
 ## 🚀 Getting Started
@@ -206,36 +212,6 @@ The Node.js proxy server (in `backend/`) forwards sensor packets from the MXChip
    platformio device monitor --environment mxchip_az3166
    ```
 
-### Expected Output
-
-```
-╔══════════════════════════════════════════════════════════════╗
-║                    MENTAL HEALTH MONITOR                    ║
-║                    Real-Time Sensor Data                    ║
-╚══════════════════════════════════════════════════════════════╝
-
-🕐 Time: 45 seconds | Sample Count: 45
-
-📊 SENSOR READINGS (30-second averages):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🌡️  Temperature: 24.8°C
-💧 Humidity:    62.3%
-📱 Motion:      1.85 m/s²
-🎤 Sound:       78 units
-
-📋 STATUS SUMMARY:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🌡️  Temperature: ✅ COMFORTABLE
-💧 Humidity:    ✅ COMFORTABLE
-📱 Motion:      ✅ NORMAL
-🎤 Sound:       ✅ LOW
-
-🏥 OVERALL HEALTH ASSESSMENT:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ ALL SYSTEMS NORMAL - Patient is comfortable
-```
-
----
 
 ## 🔬 Technical Challenges & Solutions
 
@@ -264,25 +240,10 @@ The Node.js proxy server (in `backend/`) forwards sensor packets from the MXChip
 
 ---
 
-## 📈 Performance Results
-
-### Sensor Performance
-- **HTS221**: ✅ 100% success rate, accurate temperature (±0.5°C) and humidity (±3%)
-- **LSM6DS3**: ✅ 95% success rate, real-time motion detection, 0.1 m/s² resolution
-- **Microphone**: ✅ 100% success rate, 0-1023 range, noise-filtered readings
-
-### System Reliability
-- **Uptime**: 99%+ sensor availability
-- **Data Rate**: 1 sample/second continuous operation
-- **Display Rate**: Clean updates every 5 seconds
-- **Memory Usage**: 17.1% RAM, 21.1% Flash
-
----
 
 ## 🎓 Academic Significance
 
 ### Research Contribution
-This project contributes to the field of **IoT-based mental health monitoring** by:
 
 1. **Demonstrating feasibility** of wearable devices for mental health assessment
 2. **Implementing direct hardware control** for maximum reliability
@@ -311,31 +272,7 @@ This project contributes to the field of **IoT-based mental health monitoring** 
 3. **Battery Management**: Power optimization and monitoring
 4. **Data Encryption**: Secure transmission to cloud
 
-### System Expansion
-1. **Multiple Devices**: Network of monitoring devices
-2. **Mobile App**: Caregiver mobile application
-3. **AI Analysis**: Predictive mental health insights
-4. **Integration**: Healthcare system connectivity
 
----
-
-## 📚 Research Validation
-
-This project implements **research-validated threshold-based detection methods** for mental health monitoring. Our approach is supported by multiple peer-reviewed studies:
-
-### Key Research Findings:
-- **Threshold-based stress detection** is scientifically validated (PMC, MDPI studies)
-- **Accelerometer-based activity recognition** is established in healthcare monitoring
-- **Multimodal IoT stress detection** using multiple sensors is research-backed
-- **Rule-based detection methods** are effective for real-time monitoring
-
-### Our Implementation:
-- **Environmental thresholds** based on healthcare comfort standards
-- **Motion intensity classification** using research-validated accelerometer methods
-- **Sound level monitoring** following established environmental monitoring principles
-- **Multi-sensor fusion** similar to validated IoT health monitoring systems
-
-For detailed research validation, see the repository documentation (if present in your copy).
 
 ## 📚 Technical References
 
@@ -366,11 +303,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Contact
 
-**Project Author**: [Your Name]
-**Institution**: [Your University]
-**Email**: [Your Email]
+**Project Author**: [Dabone Abdoul Latif]
+                    [Famous Akpovogbeta]
+                    [Maureen Amago M.A]
+**Institution**: [Academic City University]
+**Email**: [dabone.latif@acity.edu.gh]
 **Project Repository**: [https://github.com/Latifpro108108/FinalYearIoTHardwarereadings.git](https://github.com/Latifpro108108/FinalYearIoTHardwarereadings.git)
 
 ---
 
-*This project represents a significant contribution to IoT-based mental health monitoring, demonstrating the potential of wearable devices for early intervention and improved patient care.*
+*This project represents a significant contribution to IoT-based health monitoring, demonstrating the potential of wearable devices for early intervention and improved patient care.*
