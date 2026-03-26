@@ -36,6 +36,26 @@ class EventService {
     });
   }
 
+  Future<List<EventModel>> fetchFallEventsForDevice(
+    String deviceId, {
+    int limit = 50,
+  }) async {
+    try {
+      final snapshot = await _firestore
+          .collection('events')
+          .where('deviceId', isEqualTo: deviceId)
+          .where('type', isEqualTo: EventType.fall.name)
+          .orderBy('timestamp', descending: true)
+          .limit(limit)
+          .get();
+
+      return snapshot.docs.map(EventModel.fromFirestore).toList();
+    } catch (e) {
+      debugPrint('Error fetching fall history: $e');
+      return <EventModel>[];
+    }
+  }
+
   // Delete an event - non-blocking
   Future<void> deleteEvent(String eventId) async {
     try {

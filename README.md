@@ -160,6 +160,29 @@ Each sensor is initialized with a robust sequence:
    - Git for version control
    - Serial monitor for debugging
 
+### Backend (MXChip Proxy → Firebase) Configuration
+The Node.js proxy server (in `backend/`) forwards sensor packets from the MXChip to Firebase Realtime Database.
+
+1. **Install dependencies**
+   ```bash
+   cd backend
+   npm install
+   ```
+2. **Configure environment variables**
+   ```bash
+   cp .env.example .env
+   ```
+   Required variables:
+   - `FIREBASE_DATABASE_URL`: your Firebase Realtime Database URL
+   - `PORT`: proxy port (default `3000`)
+   - `FIREBASE_API_KEY` (optional): enables anonymous auth for REST writes (if omitted, the system relies on RTDB rules)
+   - `GOOGLE_APPLICATION_CREDENTIALS` (optional): path to `serviceAccountKey.json` if you want the proxy to use Firebase Admin SDK
+
+3. **Start the server**
+   ```bash
+   npm start
+   ```
+
 ### Installation
 
 1. **Clone the repository**:
@@ -312,7 +335,7 @@ This project implements **research-validated threshold-based detection methods**
 - **Sound level monitoring** following established environmental monitoring principles
 - **Multi-sensor fusion** similar to validated IoT health monitoring systems
 
-For detailed research validation, see [RESEARCH_VALIDATION.md](RESEARCH_VALIDATION.md).
+For detailed research validation, see the repository documentation (if present in your copy).
 
 ## 📚 Technical References
 

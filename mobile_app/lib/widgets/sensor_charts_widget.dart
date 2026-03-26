@@ -39,12 +39,12 @@ class _SensorChartsWidgetState extends State<SensorChartsWidget> {
   Widget build(BuildContext context) {
     if (widget.sensorDataHistory.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
             Icon(Icons.show_chart, size: 64, color: Colors.grey[300]),
             const SizedBox(height: 16),
-            Text(
+              Text(
               'No data yet',
               style: TextStyle(color: Colors.grey[600], fontSize: 16),
             ),
@@ -120,47 +120,47 @@ class _SensorChartsWidgetState extends State<SensorChartsWidget> {
 
   Widget _buildBarCharts(List<SensorDataModel> data) {
     return Column(
-      children: [
+        children: [
         _buildLineChart(
-          'Temperature',
-          Icons.thermostat,
-          Colors.red,
-          '°C',
+            'Temperature',
+            Icons.thermostat,
+            Colors.red,
+            '°C',
           data,
-          (d) => d.temperature,
+            (d) => d.temperature,
           (v) => v.toStringAsFixed(1),
-        ),
-        const SizedBox(height: 16),
+          ),
+          const SizedBox(height: 16),
         _buildLineChart(
-          'Humidity',
-          Icons.water_drop,
-          Colors.blue,
-          '%',
+            'Humidity',
+            Icons.water_drop,
+            Colors.blue,
+            '%',
           data,
-          (d) => d.humidity,
+            (d) => d.humidity,
           (v) => v.toStringAsFixed(1),
-        ),
-        const SizedBox(height: 16),
+          ),
+          const SizedBox(height: 16),
         _buildLineChart(
-          'Motion',
-          Icons.accessibility_new,
-          Colors.purple,
-          'm/s²',
+            'Motion',
+            Icons.accessibility_new,
+            Colors.purple,
+            'm/s²',
           data,
-          (d) => d.motion.magnitude,
+            (d) => d.motion.magnitude,
           (v) => v.toStringAsFixed(2),
-        ),
-        const SizedBox(height: 16),
+          ),
+          const SizedBox(height: 16),
         _buildLineChart(
           'Sound',
-          Icons.volume_up,
-          Colors.green,
-          '',
+            Icons.volume_up,
+            Colors.green,
+            '',
           data,
-          (d) => d.sound.toDouble(),
+            (d) => d.sound.toDouble(),
           (v) => v.toStringAsFixed(0),
-        ),
-      ],
+          ),
+        ],
     );
   }
 
@@ -195,29 +195,29 @@ class _SensorChartsWidgetState extends State<SensorChartsWidget> {
             ],
           ),
         ),
-        child: Padding(
+      child: Padding(
           padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
               // Header
-              Row(
-                children: [
-                  Container(
+            Row(
+              children: [
+                Container(
                     padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.2),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(icon, color: color, size: 24),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
+                    child: Icon(icon, color: color, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          title,
+                    title,
                           style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -233,14 +233,14 @@ class _SensorChartsWidgetState extends State<SensorChartsWidget> {
                           ),
                         ),
                       ],
-                    ),
                   ),
-                  Container(
+                ),
+                Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 14,
                       vertical: 8,
                     ),
-                    decoration: BoxDecoration(
+                  decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [color, color.withOpacity(0.8)],
                       ),
@@ -252,21 +252,21 @@ class _SensorChartsWidgetState extends State<SensorChartsWidget> {
                           offset: const Offset(0, 2),
                         ),
                       ],
-                    ),
-                    child: Text(
+                  ),
+                  child: Text(
                       '${format(current)}$unit',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
                         fontSize: 16,
-                      ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
               const SizedBox(height: 24),
               // Line chart showing trend over time
-              SizedBox(
+            SizedBox(
                 height: 250,
                 width: double.infinity,
                 child: LayoutBuilder(
@@ -282,9 +282,9 @@ class _SensorChartsWidgetState extends State<SensorChartsWidget> {
                         format: _extractDecimalPlaces(format),
                       ),
                       size: Size(constraints.maxWidth, constraints.maxHeight),
-                    );
-                  },
-                ),
+                      );
+                    },
+                  ),
               ),
               const SizedBox(height: 12),
               // Stats
@@ -494,7 +494,7 @@ class _SensorChartsWidgetState extends State<SensorChartsWidget> {
                               style: TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.bold,
-                                color: color,
+                      color: color,
                               ),
                             ),
                             Text(
@@ -503,9 +503,9 @@ class _SensorChartsWidgetState extends State<SensorChartsWidget> {
                                 fontSize: 10,
                                 color: Colors.grey[700],
                                 fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
+                      ),
+                    ),
+                  ],
                         ),
                       ],
                     ),
@@ -543,10 +543,10 @@ class _SensorChartsWidgetState extends State<SensorChartsWidget> {
                     ),
                   ),
                 ],
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
+      ),
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import '../models/sensor_data_model.dart';
 import '../models/event_model.dart';
+import '../models/alert_model.dart';
 import 'event_service.dart';
 import 'notification_service.dart';
 
@@ -15,6 +16,7 @@ class FallDetectionService {
   static const int _windowSize = 15; // Reduced for faster detection
 
   DateTime? _lastFallDetection;
+  SensorDataModel? _previousReading;
   static const int _fallDetectionCooldownSeconds = 15; // Reduced cooldown
 
   FallDetectionService(this._eventService, this._notificationService);
@@ -104,9 +106,14 @@ class FallDetectionService {
 
       // Save event and send notification IMMEDIATELY (critical event)
       await _eventService.saveEvent(event);
-      await _notificationService.showEventNotification(
-        event: event,
-        playSound: true, // Always play sound for fall detection
+      await _notificationService.showFallAlert(
+        AlertEvent(
+          type: AlertType.fall,
+          confidence: event.confidence,
+          message: analysis.description,
+          indicators: event.sensorData,
+          detectedAt: event.timestamp,
+        ),
       );
 
       _lastFallDetection = DateTime.now();
@@ -118,6 +125,48 @@ class FallDetectionService {
     }
 
     return null;
+  }
+
+  // Backward-compatible helper used by older screens.
+  Future<AlertEvent?> checkForFall({
+    required SensorDataModel data,
+    required String userId,
+    required String deviceId,
+  }) async {
+    final event = await analyzeSensorDataForFall(
+      userId: userId,
+      deviceId: deviceId,
+      currentData: data,
+      previousData: _previousReading,
+    );
+    _previousReading = data;
+
+    if (event == null) return null;
+    return AlertEvent(
+      type: AlertType.fall,
+      confidence: event.confidence,
+      message:
+          event.additionalData?['description']?.toString() ?? 'Fall detected',
+      indicators: event.sensorData,
+      detectedAt: event.timestamp,
+    );
+  }
+
+  // Backward-compatible helper used by monitoring screen.
+  Future<List<Map<String, dynamic>>> fetchFallHistory({
+    required String deviceId,
+    int limit = 50,
+  }) async {
+    final events =
+        await _eventService.fetchFallEventsForDevice(deviceId, limit: limit);
+    return events
+        .map(
+          (e) => <String, dynamic>{
+            'confidence': e.confidence,
+            'timestamp': e.timestamp.millisecondsSinceEpoch,
+          },
+        )
+        .toList();
   }
 
   _StatisticalMetrics _calculateStatistics(List<SensorDataModel> readings) {

@@ -5,6 +5,8 @@ class SensorDataModel {
   final double humidity;
   final MotionData motion;
   final int sound;
+  final bool fallDetected;
+  final double fallConfidence;
   final DateTime receivedAt;
 
   SensorDataModel({
@@ -14,6 +16,8 @@ class SensorDataModel {
     required this.humidity,
     required this.motion,
     required this.sound,
+    required this.fallDetected,
+    required this.fallConfidence,
     required this.receivedAt,
   });
 
@@ -27,39 +31,58 @@ class SensorDataModel {
         'motion': motion.toJson(),
         'sound': {'raw': sound},
       },
+      'fall_detection': {
+        'detected': fallDetected,
+        'confidence': fallConfidence,
+      },
       'received_at': receivedAt.toIso8601String(),
     };
   }
 
   factory SensorDataModel.fromJson(Map<String, dynamic> json) {
-    // Backend sends: { device_id, timestamp (seconds), sensors: { motion: {...}, sound: {raw: ...}, temperature, humidity }, received_at }
-    // Helper to safely convert Map<Object?, Object?> to Map<String, dynamic>
     Map<String, dynamic> safeConvertMap(dynamic value) {
       if (value == null) return <String, dynamic>{};
       if (value is Map) {
         return value.map((k, v) {
-          if (v is Map) {
-            return MapEntry(k.toString(), safeConvertMap(v));
-          }
+          if (v is Map) return MapEntry(k.toString(), safeConvertMap(v));
           return MapEntry(k.toString(), v);
         });
       }
       return <String, dynamic>{};
     }
-    
-    final safeJson = safeConvertMap(json);
-    final sensors = safeConvertMap(safeJson['sensors']);
-    final motionData = safeConvertMap(sensors['motion']);
 
-    // Parse timestamp - backend sends in SECONDS, convert to milliseconds
+    final safeJson     = safeConvertMap(json);
+    final sensors      = safeConvertMap(safeJson['sensors']);
+    final motionData   = safeConvertMap(sensors['motion']);
+    final fallData     = safeConvertMap(safeJson['fall_detection']);
+
+    bool parseBoolLike(dynamic value) {
+      if (value is bool) return value;
+      if (value is num) return value != 0;
+      if (value is String) {
+        final normalized = value.trim().toLowerCase();
+        return normalized == 'true' ||
+            normalized == '1' ||
+            normalized == 'yes';
+      }
+      return false;
+    }
+
+    double parseDoubleLike(dynamic value, {double fallback = 0.0}) {
+      if (value is num) return value.toDouble();
+      if (value is String) return double.tryParse(value) ?? fallback;
+      return fallback;
+    }
+
+    // Timestamp — hardware sends seconds since boot, not unix epoch.
+    // Correct threshold: anything under 10 billion is seconds, convert to ms.
     int timestampMs;
-    final timestamp = safeJson['timestamp'];
-    if (timestamp != null) {
-      if (timestamp is int) {
-        // If less than year 2001 in milliseconds, assume seconds and convert
-        timestampMs = timestamp < 1000000000 ? timestamp * 1000 : timestamp;
-      } else if (timestamp is num) {
-        timestampMs = (timestamp < 1000000000 ? timestamp * 1000 : timestamp).toInt();
+    final ts = safeJson['timestamp'];
+    if (ts != null) {
+      if (ts is int) {
+        timestampMs = ts < 10000000000 ? ts * 1000 : ts;
+      } else if (ts is num) {
+        timestampMs = (ts < 10000000000 ? ts * 1000 : ts).toInt();
       } else {
         timestampMs = DateTime.now().millisecondsSinceEpoch;
       }
@@ -67,43 +90,43 @@ class SensorDataModel {
       timestampMs = DateTime.now().millisecondsSinceEpoch;
     }
 
-    // Parse received_at - ISO string from backend
     DateTime receivedAt;
     final receivedAtStr = safeJson['received_at'];
     if (receivedAtStr != null) {
       try {
         receivedAt = DateTime.parse(receivedAtStr.toString());
-      } catch (e) {
+      } catch (_) {
         receivedAt = DateTime.now();
       }
     } else {
       receivedAt = DateTime.now();
     }
 
-    // Get temperature and humidity from sensors object or root
-    final temp = sensors['temperature'] ?? safeJson['temperature'] ?? 0.0;
-    final hum = sensors['humidity'] ?? safeJson['humidity'] ?? 0.0;
+    final temp     = sensors['temperature'] ?? safeJson['temperature'] ?? 0.0;
+    final hum      = sensors['humidity']    ?? safeJson['humidity']    ?? 0.0;
+    final soundVal = sensors['sound']?['raw'] ?? sensors['sound'] ?? safeJson['sound'] ?? 0;
+    final soundInt = soundVal is int ? soundVal : (soundVal is num ? soundVal.toInt() : 0);
 
-    // Get sound value
-    final soundVal =
-        sensors['sound']?['raw'] ?? sensors['sound'] ?? safeJson['sound'] ?? 0;
-    final soundInt =
-        soundVal is int ? soundVal : (soundVal is num ? soundVal.toInt() : 0);
-
-    // Get device_id
-    final deviceId = safeJson['device_id']?.toString() ?? '';
+    // Fall detection fields:
+    // support multiple payload styles (nested + flat, bool + int + string).
+    final rawFallDetected =
+        fallData['detected'] ?? safeJson['fall_detected'] ?? sensors['fall_detected'];
+    final rawFallConfidence = fallData['confidence'] ??
+        safeJson['fall_confidence'] ??
+        sensors['fall_confidence'];
+    final fallDetected = parseBoolLike(rawFallDetected);
+    final fallConfidence = parseDoubleLike(rawFallConfidence).clamp(0.0, 1.0);
 
     return SensorDataModel(
-      deviceId: deviceId,
-      timestamp: DateTime.fromMillisecondsSinceEpoch(timestampMs),
-      temperature:
-          (temp is num ? temp : double.tryParse(temp.toString()) ?? 0.0)
-              .toDouble(),
-      humidity: (hum is num ? hum : double.tryParse(hum.toString()) ?? 0.0)
-          .toDouble(),
-      motion: MotionData.fromJson(motionData),
-      sound: soundInt,
-      receivedAt: receivedAt,
+      deviceId:       safeJson['device_id']?.toString() ?? '',
+      timestamp:      DateTime.fromMillisecondsSinceEpoch(timestampMs),
+      temperature:    (temp is num ? temp : double.tryParse(temp.toString()) ?? 0.0).toDouble(),
+      humidity:       (hum  is num ? hum  : double.tryParse(hum.toString())  ?? 0.0).toDouble(),
+      motion:         MotionData.fromJson(motionData),
+      sound:          soundInt,
+      fallDetected:   fallDetected,
+      fallConfidence: fallConfidence,
+      receivedAt:     receivedAt,
     );
   }
 }
@@ -116,9 +139,13 @@ class MotionData {
   final double gyroX;
   final double gyroY;
   final double gyroZ;
+  final double magX;
+  final double magY;
+  final double magZ;
   final double angleX;
   final double angleY;
   final double angleZ;
+  final double heading;
 
   MotionData({
     required this.magnitude,
@@ -128,9 +155,13 @@ class MotionData {
     required this.gyroX,
     required this.gyroY,
     required this.gyroZ,
+    required this.magX,
+    required this.magY,
+    required this.magZ,
     required this.angleX,
     required this.angleY,
     required this.angleZ,
+    required this.heading,
   });
 
   Map<String, dynamic> toJson() {
@@ -142,27 +173,33 @@ class MotionData {
       'gyro_x': gyroX,
       'gyro_y': gyroY,
       'gyro_z': gyroZ,
+      'mag_x': magX,
+      'mag_y': magY,
+      'mag_z': magZ,
       'angle_x': angleX,
       'angle_y': angleY,
       'angle_z': angleZ,
+      'heading': heading,
     };
   }
 
   factory MotionData.fromJson(Map<String, dynamic> json) {
-    // Handle Map<Object?, Object?> type from Firebase
-    final safeJson = json.map((key, value) => MapEntry(key.toString(), value));
-    
+    final safe = json.map((k, v) => MapEntry(k.toString(), v));
     return MotionData(
-      magnitude: ((safeJson['magnitude'] ?? 0.0) as num).toDouble(),
-      x: ((safeJson['x'] ?? 0.0) as num).toDouble(),
-      y: ((safeJson['y'] ?? 0.0) as num).toDouble(),
-      z: ((safeJson['z'] ?? 0.0) as num).toDouble(),
-      gyroX: ((safeJson['gyro_x'] ?? 0.0) as num).toDouble(),
-      gyroY: ((safeJson['gyro_y'] ?? 0.0) as num).toDouble(),
-      gyroZ: ((safeJson['gyro_z'] ?? 0.0) as num).toDouble(),
-      angleX: ((safeJson['angle_x'] ?? 0.0) as num).toDouble(),
-      angleY: ((safeJson['angle_y'] ?? 0.0) as num).toDouble(),
-      angleZ: ((safeJson['angle_z'] ?? 0.0) as num).toDouble(),
+      magnitude: ((safe['magnitude'] ?? 0.0) as num).toDouble(),
+      x:         ((safe['x']         ?? 0.0) as num).toDouble(),
+      y:         ((safe['y']         ?? 0.0) as num).toDouble(),
+      z:         ((safe['z']         ?? 0.0) as num).toDouble(),
+      gyroX:     ((safe['gyro_x']    ?? 0.0) as num).toDouble(),
+      gyroY:     ((safe['gyro_y']    ?? 0.0) as num).toDouble(),
+      gyroZ:     ((safe['gyro_z']    ?? 0.0) as num).toDouble(),
+      magX:      ((safe['mag_x']     ?? 0.0) as num).toDouble(),
+      magY:      ((safe['mag_y']     ?? 0.0) as num).toDouble(),
+      magZ:      ((safe['mag_z']     ?? 0.0) as num).toDouble(),
+      angleX:    ((safe['angle_x']   ?? 0.0) as num).toDouble(),
+      angleY:    ((safe['angle_y']   ?? 0.0) as num).toDouble(),
+      angleZ:    ((safe['angle_z']   ?? 0.0) as num).toDouble(),
+      heading:   ((safe['heading']   ?? 0.0) as num).toDouble(),
     );
   }
 }

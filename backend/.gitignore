@@ -1,3 +1,11 @@
 node_modules/
 .env
 *.log
+
+# Backend env (never commit secrets)
+!.env.example
+
+# Service account / key material (never commit)
+serviceAccountKey.json
+*.pem
+*.key

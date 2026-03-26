@@ -62,5 +62,11 @@ __pycache__/
 .env.test.local
 .env.production.local
 
+# Backend environment (never commit secrets)
+backend/.env
+
+# Backend service account / key files
+backend/serviceAccountKey.json
+
 # Hardware configuration (contains sensitive WiFi/Firebase credentials)
 src/config.h

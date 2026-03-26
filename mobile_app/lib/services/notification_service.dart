@@ -1,235 +1,130 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:permission_handler/permission_handler.dart';
-import '../models/emotional_state_model.dart';
-import '../models/event_model.dart';
-import '../utils/constants.dart';
+import '../models/alert_model.dart';
 
 class NotificationService {
-  final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
-  DateTime? _lastNotificationTime;
-  EmotionalState? _lastNotifiedState;
+  final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
 
-  // Initialize notifications
+  static const String _fallChannelId       = 'fall_alerts';
+  static const String _discomfortChannelId = 'discomfort_alerts';
+  static const String _thresholdChannelId  = 'threshold_alerts';
+
   Future<void> initialize() async {
-    // Request permission
-    await _requestPermission();
-
-    // Android initialization settings
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    
-    // iOS initialization settings
+    const androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
-
     const initSettings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
     );
+    await _plugin.initialize(initSettings);
+    await _createNotificationChannels();
+    debugPrint('NotificationService: Initialized');
+  }
 
-    await _notifications.initialize(
-      initSettings,
-      onDidReceiveNotificationResponse: _onNotificationTapped,
+  Future<void> _createNotificationChannels() async {
+    const fallChannel = AndroidNotificationChannel(
+      _fallChannelId,
+      'Fall Alerts',
+      description: 'Urgent alerts when a fall is detected',
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
     );
-
-    // Create notification channel for Android
-    await _createNotificationChannel();
-  }
-
-  // Request notification permission
-  Future<void> _requestPermission() async {
-    final status = await Permission.notification.request();
-    if (!status.isGranted) {
-      debugPrint('Notification permission not granted');
-    }
-  }
-
-  // Create Android notification channel
-  Future<void> _createNotificationChannel() async {
-    const androidChannel = AndroidNotificationChannel(
-      AppConstants.notificationChannelId,
-      AppConstants.notificationChannelName,
-      description: AppConstants.notificationChannelDescription,
+    const discomfortChannel = AndroidNotificationChannel(
+      _discomfortChannelId,
+      'Discomfort Alerts',
+      description: 'Alerts when the person may be uncomfortable',
       importance: Importance.high,
       playSound: true,
     );
+    const thresholdChannel = AndroidNotificationChannel(
+      _thresholdChannelId,
+      'Threshold Alerts',
+      description: 'Alerts when sensor readings leave the comfort range',
+      importance: Importance.defaultImportance,
+      playSound: false,
+    );
 
-    await _notifications
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(androidChannel);
+    // FIX: keep generic on one line to avoid parser issues on older SDK
+    final androidPlugin = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (androidPlugin != null) {
+      await androidPlugin.createNotificationChannel(fallChannel);
+      await androidPlugin.createNotificationChannel(discomfortChannel);
+      await androidPlugin.createNotificationChannel(thresholdChannel);
+    }
   }
 
-  // Handle notification tap
-  void _onNotificationTapped(NotificationResponse response) {
-    // Handle notification tap if needed
-    debugPrint('Notification tapped: ${response.payload}');
+  Future<void> showFallAlert(AlertEvent event) async {
+    final confidence = (event.confidence * 100).toInt();
+    await _show(
+      id:         1,
+      channelId:  _fallChannelId,
+      title:      '⚠️ Fall Detected',
+      body:       'Please check on the person immediately. ($confidence% confidence)',
+      priority:   Priority.max,
+      importance: Importance.max,
+    );
   }
 
-  // Show notification for emotional state change
-  Future<void> showEmotionalStateNotification(EmotionalStateResult result) async {
-    // Check cooldown to avoid spamming notifications
-    if (_lastNotificationTime != null) {
-      final timeSinceLastNotification = DateTime.now().difference(_lastNotificationTime!);
-      if (timeSinceLastNotification.inMinutes < AppConstants.notificationCooldownMinutes) {
-        return;
-      }
-    }
-
-    // Don't notify for normal state unless it's a change from a non-normal state
-    if (result.state == EmotionalState.normal && _lastNotifiedState == EmotionalState.normal) {
-      return;
-    }
-
-    // Only notify if confidence is above threshold
-    if (result.confidence < AppConstants.defaultConfidenceThreshold) {
-      return;
-    }
-
-    final title = _getNotificationTitle(result.state);
-    final body = _getNotificationBody(result);
-
-    const androidDetails = AndroidNotificationDetails(
-      AppConstants.notificationChannelId,
-      AppConstants.notificationChannelName,
-      channelDescription: AppConstants.notificationChannelDescription,
+  Future<void> showDiscomfortAlert(AlertEvent event) async {
+    final confidence = (event.confidence * 100).toInt();
+    await _show(
+      id:         2,
+      channelId:  _discomfortChannelId,
+      title:      'Possible Discomfort ($confidence%)',
+      body:       event.message,
+      priority:   Priority.high,
       importance: Importance.high,
-      priority: Priority.high,
-      showWhen: true,
     );
-
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _notifications.show(
-      result.detectedAt.millisecondsSinceEpoch % 100000,
-      title,
-      body,
-      details,
-    );
-
-    _lastNotificationTime = DateTime.now();
-    _lastNotifiedState = result.state;
   }
 
-  String _getNotificationTitle(EmotionalState state) {
-    switch (state) {
-      case EmotionalState.anxiety:
-        return '⚠️ Anxiety Detected';
-      case EmotionalState.stress:
-        return '⚠️ Stress Detected';
-      case EmotionalState.discomfort:
-        return '⚠️ Discomfort Detected';
-      case EmotionalState.normal:
-        return '✅ State Normalized';
-      case EmotionalState.unknown:
-        return '❓ Unknown State';
-    }
+  Future<void> showThresholdBreachAlert(ThresholdBreachDetail breach) async {
+    await _show(
+      id:         breach.sensorName.hashCode,
+      channelId:  _thresholdChannelId,
+      title:      'Unusual ${breach.sensorName}',
+      body:       breach.breachMessage,
+      priority:   Priority.defaultPriority,
+      importance: Importance.defaultImportance,
+    );
   }
 
-  String _getNotificationBody(EmotionalStateResult result) {
-    final baseMessage = result.state.description;
-    final confidencePercent = (result.confidence * 100).toInt();
-    return '$baseMessage\nConfidence: $confidencePercent%';
-  }
+  Future<void> cancelAll() async => _plugin.cancelAll();
 
-  // Show notification for event (like fall detection) - CRITICAL: No cooldown for fall detection
-  Future<void> showEventNotification({
-    required EventModel event,
-    bool playSound = false,
+  Future<void> _show({
+    required int        id,
+    required String     channelId,
+    required String     title,
+    required String     body,
+    required Priority   priority,
+    required Importance importance,
   }) async {
-    // For critical events like fall detection, always show immediately (no cooldown check)
-    final title = _getEventNotificationTitle(event.type);
-    final body = _getEventNotificationBody(event);
-
-    // Use maximum priority for critical events
-    final importance = event.type == EventType.fall 
-        ? Importance.max 
-        : Importance.high;
-    final priority = event.type == EventType.fall 
-        ? Priority.max 
-        : Priority.high;
-
-    final androidDetails = AndroidNotificationDetails(
-      AppConstants.notificationChannelId,
-      AppConstants.notificationChannelName,
-      channelDescription: AppConstants.notificationChannelDescription,
-      importance: importance,
-      priority: priority,
-      showWhen: true,
-      playSound: playSound || event.type == EventType.fall, // Always play sound for fall detection
-      sound: (playSound || event.type == EventType.fall) 
-          ? const RawResourceAndroidNotificationSound('default') // Use default system sound if custom not available
-          : null,
-      enableVibration: event.type == EventType.fall, // Vibrate for fall detection
-      fullScreenIntent: event.type == EventType.fall, // Show full screen intent for fall
-    );
-
-    final iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: playSound || event.type == EventType.fall,
-      sound: (playSound || event.type == EventType.fall) 
-          ? 'default' 
-          : null,
-      interruptionLevel: event.type == EventType.fall 
-          ? InterruptionLevel.critical 
-          : InterruptionLevel.active,
-    );
-
-    final details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    // Use unique ID based on timestamp to ensure notification is shown
-    final notificationId = event.timestamp.millisecondsSinceEpoch % 1000000;
-    
-    await _notifications.show(
-      notificationId,
-      title,
-      body,
-      details,
-    );
-
-    debugPrint('🔔 Notification sent: $title - $body (Sound: ${playSound || event.type == EventType.fall}, Priority: $priority)');
-  }
-
-  String _getEventNotificationTitle(EventType type) {
-    switch (type) {
-      case EventType.fall:
-        return '🚨 Fall Detected!';
-      case EventType.feelingGood:
-        return '😊 Feeling Good';
-      case EventType.anxiety:
-        return '⚠️ Anxiety Alert';
-      case EventType.stress:
-        return '⚠️ Stress Alert';
-      case EventType.discomfort:
-        return '⚠️ Discomfort Alert';
-      case EventType.baselineThreshold:
-        return '📊 Baseline Threshold Reached';
+    try {
+      final androidDetails = AndroidNotificationDetails(
+        channelId,
+        channelId,
+        importance: importance,
+        priority:   priority,
+        playSound:  true,
+      );
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
+          presentBadge: true,
+        ),
+      );
+      await _plugin.show(id, title, body, details);
+      debugPrint('NotificationService: Showed "$title"');
+    } catch (e) {
+      debugPrint('NotificationService: Failed to show notification: $e');
     }
-  }
-
-  String _getEventNotificationBody(EventModel event) {
-    final confidencePercent = (event.confidence * 100).toInt();
-    return '${event.type.description}\nConfidence: $confidencePercent%';
-  }
-
-  // Cancel all notifications
-  Future<void> cancelAll() async {
-    await _notifications.cancelAll();
   }
 }
-
