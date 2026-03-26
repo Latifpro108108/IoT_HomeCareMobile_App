@@ -10,10 +10,21 @@ public:
     MXChipFirebase();
     bool begin(const char* host, int port);
     bool sendData(float temperature, float humidity);
-    bool sendSensorData(const char* deviceId, float temp, float hum, float motionMag, int sound,
-                       float accelX, float accelY, float accelZ,
-                       float gyroX, float gyroY, float gyroZ,
-                       float xAngle, float yAngle, float zAngle);
+
+    // Full payload signature (includes mag + heading + fall fields)
+    bool sendSensorData(
+        const char* deviceId,
+        float temp,        float hum,
+        float motionMag,   int sound,
+        float accelX,      float accelY,   float accelZ,
+        float gyroX,       float gyroY,    float gyroZ,
+        float magX,        float magY,     float magZ,
+        float xAngle,      float yAngle,   float zAngle,
+        float heading,
+        int   fall_detected,
+        float fall_confidence
+    );
+
     bool sendJSON(const char* jsonData);
     bool isConnected();
     void setDebugMode(bool debug);
@@ -23,7 +34,6 @@ public:
     const char* getLastError();
 
 private:
-    // Use regular WiFiClient by default for HTTP proxy
     WiFiClient client;
     bool connected;
     bool debugMode;
@@ -36,4 +46,4 @@ private:
     char lastError[256];
 };
 
-#endif 
+#endif

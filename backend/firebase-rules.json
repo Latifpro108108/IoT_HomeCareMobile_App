@@ -15,6 +15,12 @@
             ".read": true,
             ".write": true
           }
+        },
+        "fall_events": {
+          "$timestamp": {
+            ".read": true,
+            ".write": true
+          }
         }
       }
     },
@@ -25,8 +31,16 @@
       }
     },
     "alerts": {
-      ".read": true,
-      ".write": false
+      "$userId": {
+        ".read": "auth != null && auth.uid == $userId",
+        ".write": "auth != null && auth.uid == $userId"
+      }
+    },
+    "thresholds": {
+      "$userId": {
+        ".read": "auth != null && auth.uid == $userId",
+        ".write": "auth != null && auth.uid == $userId"
+      }
     },
     "test": {
       ".read": true,
@@ -34,4 +48,3 @@
     }
   }
 }
-

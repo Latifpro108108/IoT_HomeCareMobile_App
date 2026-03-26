@@ -113,7 +113,24 @@ Each sensor is initialized with a robust sequence:
 
 ---
 
-## 📊 Data Collection Strategy
+## � Environment Variables and Secrets (secure setup)
+
+- The backend uses `dotenv` and reads credentials from `backend/.env`.
+- `backend/.env` must not be committed. The repo already includes `.gitignore` entries for `.env` and a `src/config.h` containing local hardware credentials.
+- Use `backend/.env.example` as a template. Copy it to `backend/.env` and fill in your real values:
+
+  ```ini
+  PORT=3000
+  FIREBASE_DATABASE_URL=https://your-project-default-rtdb.firebaseio.com
+  FIREBASE_API_KEY=YOUR_FIREBASE_API_KEY
+  # Optional:
+  # GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json
+  ```
+
+- For MXChip WiFi settings, update `src/config.h` locally (not in git); this file is in `.gitignore`.
+- If you committed secrets accidentally, remove them from history with `git rm --cached backend/.env && git commit --amend` and/or a history rewrite tool.
+
+## �📊 Data Collection Strategy
 
 ### Sampling Parameters
 - **Raw Sampling**: Every 1 second
